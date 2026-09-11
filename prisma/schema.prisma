@@ -1,0 +1,286 @@
+// SkillSense Normalized Educational Persistence Schema
+// Database Engine: SQLite for zero-setup local dev / PostgreSQL compatible for production
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model School {
+  id          String        @id @default(cuid())
+  name        String
+  code        String        @unique
+  logo        String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  users       UserProfile[]
+  classrooms  Classroom[]
+  drills      Drill[]
+}
+
+model UserProfile {
+  id              String            @id // Matches Clerk User ID or demo ID
+  email           String            @unique
+  name            String
+  role            String            // 'student' | 'teacher' | 'admin'
+  avatarUrl       String?
+  schoolId        String
+  school          School            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  taughtClasses   Classroom[]       @relation("TeacherClasses")
+  memberships     ClassMembership[]
+  createdDrills   Drill[]           @relation("TeacherDrills")
+  drillSessions   DrillSession[]
+  attempts        StudentAttempt[]
+  masteries       StudentMastery[]
+  achievements    StudentAchievement[]
+}
+
+model Classroom {
+  id            String            @id @default(cuid())
+  schoolId      String
+  school        School            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name          String            // e.g. "Grade 6A"
+  grade         Int               // e.g. 6
+  code          String            @unique // e.g. "MATH6A"
+  teacherId     String
+  teacher       UserProfile       @relation("TeacherClasses", fields: [teacherId], references: [id], onDelete: Cascade)
+  activeDrillId String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  memberships   ClassMembership[]
+  drills        Drill[]
+  insights      TeacherInsight[]
+}
+
+model ClassMembership {
+  id          String      @id @default(cuid())
+  classId     String
+  classroom   Classroom   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  studentId   String
+  student     UserProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  enrolledAt  DateTime    @default(now())
+
+  @@unique([classId, studentId])
+}
+
+model Subject {
+  id          String   @id // 'math' | 'logic' | 'science' | 'english' | 'cs'
+  name        String
+  icon        String
+  description String
+  topics      Topic[]
+  questions   Question[]
+  drills      Drill[]
+  masteries   StudentMastery[]
+}
+
+model Topic {
+  id          String   @id
+  subjectId   String
+  subject     Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  name        String
+  description String
+  gradeLevels String   // JSON array string e.g. "[5,6,7]"
+  skills      Skill[]
+  questions   Question[]
+  drills      Drill[]
+}
+
+model Skill {
+  id                String           @id
+  topicId           String
+  topic             Topic            @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  subjectId         String
+  name              String
+  description       String
+  defaultDifficulty Int              @default(2)
+  questions         Question[]
+  masteries         StudentMastery[]
+  drillQuestions    DrillQuestion[]
+}
+
+model Question {
+  id                 String           @id
+  subjectId          String
+  subject            Subject          @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  topicId            String
+  topic              Topic            @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  skillId            String
+  skill              Skill            @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  gradeLevel         Int
+  difficulty         Int              // 1 to 5
+  type               String           // 'multiple_choice' | 'numeric' | 'true_false' | etc.
+  prompt             String
+  options            String?          // JSON array string of QuestionOption {id, text}
+  correctAnswer      String           // String or JSON array string
+  explanation        String
+  hint               String
+  estimatedSeconds   Int              @default(20)
+  misconceptionTags  String?          // JSON array string
+  reasoningPrompt    String?
+  reasoningOptions   String?          // JSON array string
+  createdAt          DateTime         @default(now())
+
+  attempts           StudentAttempt[]
+  drillQuestions     DrillQuestion[]
+}
+
+model Drill {
+  id                    String           @id @default(cuid())
+  schoolId              String
+  school                School           @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classId               String
+  classroom             Classroom        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  teacherId             String
+  teacher               UserProfile      @relation("TeacherDrills", fields: [teacherId], references: [id], onDelete: Cascade)
+  title                 String
+  subjectId             String
+  subject               Subject          @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  topicId               String
+  topic                 Topic            @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  durationMinutes       Int              @default(5)
+  isAdaptive            Boolean          @default(true)
+  targetQuestionCount   Int              @default(8)
+  status                String           @default("READY") // 'DRAFT' | 'READY' | 'LIVE' | 'PAUSED' | 'COMPLETED'
+  startedAt             DateTime?
+  pausedAt              DateTime?
+  resumedAt             DateTime?
+  endsAt                DateTime?
+  enableReasoningChecks Boolean          @default(true)
+  feedbackMode          String           @default("immediate")
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  drillQuestions        DrillQuestion[]
+  sessions              DrillSession[]
+  insights              TeacherInsight[]
+}
+
+model DrillQuestion {
+  id         String   @id @default(cuid())
+  drillId    String
+  drill      Drill    @relation(fields: [drillId], references: [id], onDelete: Cascade)
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  skillId    String
+  skill      Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  orderIndex Int      @default(0)
+
+  @@unique([drillId, questionId])
+}
+
+model DrillSession {
+  id                    String           @id @default(cuid())
+  drillId               String
+  drill                 Drill            @relation(fields: [drillId], references: [id], onDelete: Cascade)
+  studentId             String
+  student               UserProfile      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentName           String
+  state                 String           @default("ACTIVE") // 'WAITING' | 'ACTIVE' | 'COMPLETED'
+  score                 Int              @default(0)
+  correctCount          Int              @default(0)
+  totalAnswered         Int              @default(0)
+  currentStreak         Int              @default(0)
+  maxStreak             Int              @default(0)
+  averageResponseTimeMs Int              @default(0)
+  currentDifficulty     Int              @default(2)
+  rapidGuessCount       Int              @default(0)
+  startedAt             DateTime         @default(now())
+  lastActiveAt          DateTime         @default(now())
+  completedAt           DateTime?
+
+  attempts              StudentAttempt[]
+
+  @@unique([drillId, studentId])
+}
+
+model StudentAttempt {
+  id                      String       @id // Idempotent submissionId e.g. "att-uuid-xyz"
+  sessionId               String
+  session                 DrillSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId               String
+  student                 UserProfile  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  questionId              String
+  question                Question     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  skillId                 String
+  studentAnswer           String       // String or JSON string
+  isCorrect               Boolean
+  responseTimeMs          Int
+  difficulty              Int
+  reasoningChoice         String?
+  misconceptionsIdentified String?     // JSON array string
+  isRapidGuess            Boolean      @default(false)
+  timestamp               DateTime     @default(now())
+
+  @@index([sessionId])
+  @@index([studentId])
+}
+
+model StudentMastery {
+  id                    String      @id @default(cuid())
+  studentId             String
+  student               UserProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subjectId             String
+  subject               Subject     @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  skillId               String
+  skill                 Skill       @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  masteryScore          Float       @default(0.50) // 0.00 to 1.00
+  accuracy              Int         @default(0)    // 0 to 100%
+  attemptsCount         Int         @default(0)
+  averageResponseTimeMs Int         @default(0)
+  recentAccuracy        Int         @default(0)
+  level                 String      @default("Getting Started") // 'Getting Started' | 'Developing' | 'Strong' | 'Mastered'
+  trend                 String      @default("stable")          // 'improving' | 'stable' | 'needs_practice'
+  lastPracticed         DateTime    @default(now())
+  commonMisconceptions  String?     // JSON array string
+
+  @@unique([studentId, skillId])
+}
+
+model Achievement {
+  id          String               @id
+  title       String
+  description String
+  icon        String
+  badgeType   String               // 'streak' | 'accuracy' | 'speed' | 'milestone' | 'reasoning'
+  users       StudentAchievement[]
+}
+
+model StudentAchievement {
+  id            String       @id @default(cuid())
+  studentId     String
+  student       UserProfile  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement  @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  unlockedAt    DateTime     @default(now())
+
+  @@unique([studentId, achievementId])
+}
+
+model TeacherInsight {
+  id                      String    @id @default(cuid())
+  drillId                 String    @unique
+  drill                   Drill     @relation(fields: [drillId], references: [id], onDelete: Cascade)
+  classId                 String
+  classroom               Classroom @relation(fields: [classId], references: [id], onDelete: Cascade)
+  totalParticipants       Int       @default(0)
+  averageAccuracy         Int       @default(0)
+  totalQuestionsAnswered  Int       @default(0)
+  strongestSkillName      String?
+  strongestSkillAccuracy  Int?
+  needsAttentionSkillName String?
+  needsAttentionSkillAccuracy Int?
+  commonMisconceptions    String?   // JSON array of {tag, studentCount, description}
+  recommendedIntervention String?
+  rapidGuessingCount      Int       @default(0)
+  isDemoBaseline          Boolean   @default(false)
+  updatedAt               DateTime  @updatedAt
+}
